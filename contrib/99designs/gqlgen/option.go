@@ -15,9 +15,11 @@ import (
 const defaultServiceName = "graphql"
 
 type config struct {
-	serviceName   string
-	analyticsRate float64
-	tags          map[string]interface{}
+	serviceName              string
+	analyticsRate            float64
+	tags                     map[string]interface{}
+	skipFieldsWithoutMethods bool // New field to determine if fields without methods should be skipped
+	skipIntrospectionQuery   bool // New field to determine if "IntrospectionQuery" should be skipped during tracing
 }
 
 // An Option configures the gqlgen integration.
@@ -27,6 +29,8 @@ func defaults(cfg *config) {
 	cfg.serviceName = namingschema.ServiceNameOverrideV0(defaultServiceName, defaultServiceName)
 	cfg.analyticsRate = globalconfig.AnalyticsRate()
 	cfg.tags = make(map[string]interface{})
+	cfg.skipFieldsWithoutMethods = false // Default value is false, meaning by default it will not skip fields without methods
+	cfg.skipIntrospectionQuery = false   // Default value is false, meaning by default it will not skip "IntrospectionQuery"
 }
 
 // WithAnalytics enables or disables Trace Analytics for all started spans.
@@ -58,5 +62,19 @@ func WithCustomTag(key string, value interface{}) Option {
 			cfg.tags = make(map[string]interface{})
 		}
 		cfg.tags[key] = value
+	}
+}
+
+// WithSkipFieldsWithoutMethods sets the skipFieldsWithoutMethods option to true.
+func WithSkipFieldsWithoutMethods() Option {
+	return func(cfg *config) {
+		cfg.skipFieldsWithoutMethods = true
+	}
+}
+
+// WithSkipIntrospectionQuery sets the skipIntrospectionQuery option to true.
+func WithSkipIntrospectionQuery() Option {
+	return func(cfg *config) {
+		cfg.skipIntrospectionQuery = true
 	}
 }
