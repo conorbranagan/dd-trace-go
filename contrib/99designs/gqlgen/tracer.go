@@ -81,6 +81,8 @@ type gqlTracer struct {
 	cfg *config
 }
 
+// Removed lines related to config struct redeclaration and WithSkipFieldsWithoutMethods function
+
 // NewTracer creates a graphql.HandlerExtension instance that can be used with
 // a graphql.handler.Server.
 // Options can be passed in for further configuration.
@@ -137,33 +139,40 @@ func (t *gqlTracer) InterceptOperation(ctx context.Context, next graphql.Operati
 }
 
 func (t *gqlTracer) InterceptField(ctx context.Context, next graphql.Resolver) (res any, err error) {
-	opCtx := graphql.GetOperationContext(ctx)
-	fieldCtx := graphql.GetFieldContext(ctx)
-	opts := make([]tracer.StartSpanOption, 0, 6+len(t.cfg.tags))
-	for k, v := range t.cfg.tags {
-		opts = append(opts, tracer.Tag(k, v))
-	}
-	opts = append(opts,
-		tracer.Tag(tagGraphqlField, fieldCtx.Field.Name),
-		tracer.Tag(tagGraphqlOperationType, opCtx.Operation.Operation),
-		tracer.Tag(ext.Component, componentName),
-		tracer.ResourceName(fmt.Sprintf("%s.%s", fieldCtx.Object, fieldCtx.Field.Name)),
-		tracer.Measured(),
-	)
-	if !math.IsNaN(t.cfg.analyticsRate) {
-		opts = append(opts, tracer.Tag(ext.EventSampleRate, t.cfg.analyticsRate))
-	}
-	span, ctx := tracer.StartSpanFromContext(ctx, fieldOp, opts...)
-	defer func() { span.Finish(tracer.WithError(err)) }()
-	ctx, op := graphqlsec.StartResolveOperation(ctx, graphqlsec.FromContext[*types.ExecutionOperation](ctx), span, types.ResolveOperationArgs{
-		Arguments: fieldCtx.Args,
-		TypeName:  fieldCtx.Object,
-		FieldName: fieldCtx.Field.Name,
-		Trivial:   !(fieldCtx.IsMethod || fieldCtx.IsResolver), // TODO: Is this accurate?
-	})
-	defer func() { op.Finish(types.ResolveOperationRes{Data: res, Error: err}) }()
-	res, err = next(ctx)
-	return
+    opCtx := graphql.GetOperationContext(ctx)
+    if t.cfg.skipIntrospectionQuery && opCtx.OperationName == "IntrospectionQuery" {
+        return next(ctx)
+    }
+    fieldCtx := graphql.GetFieldContext(ctx)
+    // Skip creating a span if WithSkipFieldsWithoutMethods is set and the field is not a method
+    if t.cfg.skipFieldsWithoutMethods && !fieldCtx.IsMethod {
+        return next(ctx)
+    }
+    opts := make([]tracer.StartSpanOption, 0, 6+len(t.cfg.tags))
+    for k, v := range t.cfg.tags {
+        opts = append(opts, tracer.Tag(k, v))
+    }
+    opts = append(opts,
+        tracer.Tag(tagGraphqlField, fieldCtx.Field.Name),
+        tracer.Tag(tagGraphqlOperationType, opCtx.Operation.Operation),
+        tracer.Tag(ext.Component, componentName),
+        tracer.ResourceName(fmt.Sprintf("%s.%s", fieldCtx.Object, fieldCtx.Field.Name)),
+        tracer.Measured(),
+    )
+    if !math.IsNaN(t.cfg.analyticsRate) {
+        opts = append(opts, tracer.Tag(ext.EventSampleRate, t.cfg.analyticsRate))
+    }
+    span, ctx := tracer.StartSpanFromContext(ctx, fieldOp, opts...)
+    defer func() { span.Finish(tracer.WithError(err)) }()
+    ctx, op := graphqlsec.StartResolveOperation(ctx, graphqlsec.FromContext[*types.ExecutionOperation](ctx), span, types.ResolveOperationArgs{
+        Arguments: fieldCtx.Args,
+        TypeName:  fieldCtx.Object,
+        FieldName: fieldCtx.Field.Name,
+        Trivial:   !(fieldCtx.IsMethod || fieldCtx.IsResolver), // TODO: Is this accurate?
+    })
+    defer func() { op.Finish(types.ResolveOperationRes{Data: res, Error: err}) }()
+    res, err = next(ctx)
+    return
 }
 
 func (*gqlTracer) InterceptResponse(ctx context.Context, next graphql.ResponseHandler) *graphql.Response {
